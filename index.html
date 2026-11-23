@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TornadoSimulation.com - Severe Weather Operations Center</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+  body { background: #0b111a; color: #e2e8f0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  header { background: #131c2b; border-bottom: 2px solid #1e293b; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .logo { font-size: 1.3rem; font-weight: 800; color: #38bdf8; letter-spacing: 0.5px; }
+  .logo span { color: #f43f5e; }
+  .nav-badges { display: flex; gap: 10px; align-items: center; font-size: 0.8rem; }
+  .badge { background: #1e293b; border: 1px solid #334155; padding: 4px 10px; border-radius: 6px; color: #94a3b8; }
+  .main-container { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 320px; background: #111827; border-right: 1px solid #1e293b; padding: 14px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+  .panel { background: #1e293b; border-radius: 8px; padding: 12px; border: 1px solid #334155; }
+  .panel h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.8px; color: #94a3b8; margin-bottom: 8px; }
+  .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  button { background: #263345; color: #f8fafc; border: 1px solid #475569; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; transition: 0.15s; }
+  button:hover { background: #334155; }
+  button.active { background: #0284c7; border-color: #38bdf8; color: #fff; }
+  button.warn-watch { background: #854d0e; border-color: #eab308; color: #fef08a; }
+  button.warn-watch:hover { background: #a16207; }
+  button.warn-tor { background: #991b1b; border-color: #ef4444; color: #fecaca; }
+  button.warn-tor:hover { background: #b91c1c; }
+  button.warn-emg { background: #86198f; border-color: #e879f9; color: #fae8ff; }
+  button.warn-emg:hover { background: #a21caf; }
+  select { width: 100%; background: #0f172a; color: #f8fafc; border: 1px solid #475569; padding: 7px; border-radius: 6px; font-size: 0.85rem; }
+  .map-area { flex: 1; position: relative; background: #070b12; display: flex; flex-direction: column; }
+  canvas#radarCanvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .hud-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; }
+  .hud-box { background: rgba(15, 23, 42, 0.88); border: 1px solid #334155; padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; }
+  .log-box { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px; font-size: 0.78rem; overflow-y: auto; max-height: 160px; display: flex; flex-direction: column; gap: 5px; }
+  .log-entry { border-left: 3px solid #38bdf8; padding-left: 6px; line-height: 1.3; }
+  .log-entry.watch { border-color: #eab308; color: #fef08a; }
+  .log-entry.tor { border-color: #ef4444; color: #fca5a5; }
+  .log-entry.emg { border-color: #e879f9; color: #f5d0fe; font-weight: bold; }
+  .sounding-canvas { width: 100%; height: 110px; background: #0f172a; border-radius: 6px; border: 1px solid #334155; }
+  footer { background: #131c2b; border-top: 1px solid #1e293b; padding: 6px 20px; font-size: 0.75rem; color: #64748b; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Tornado<span>Simulation</span>.com</div>
+  <div class="nav-badges">
+    <span class="badge">LIVE DOPPLER RADAR</span>
+    <span class="badge">PWA READY (iOS / ANDROID)</span>
+  </div>
+</header>
+<div class="main-container">
+  <div class="sidebar">
+    <div class="panel">
+      <h3>Scenario & Speed</h3>
+      <select id="scenarioSelect" onchange="resetSim()">
+        <option value="supercell">Supercell Outbreak</option>
+        <option value="nocturnal">Nocturnal Tornado Threat</option>
+        <option value="highdensity">High-Speed Wedge Event</option>
+      </select>
+      <div class="btn-group" style="margin-top:8px;">
+        <button onclick="setSpeed(1)" id="spd1" class="active">1x Speed</button>
+        <button onclick="setSpeed(2.5)" id="spd2">2.5x Speed</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Radar Scan Mode</h3>
+      <div class="btn-group">
+        <button onclick="setRadarMode('REF')" id="modeREF" class="active">Reflectivity</button>
+        <button onclick="setRadarMode('VEL')" id="modeVEL">Velocity (SRM)</button>
+        <button onclick="setRadarMode('CC')" id="modeCC" style="grid-column: span 2;">Correlation Coefficient (CC)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Severe Weather Alerts</h3>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <button class="warn-watch" onclick="issueFiveTownWatch()">Issue Tornado Watch (5 Towns)</button>
+        <button class="warn-tor" id="drawTorBtn" onclick="startBoxDraw('TORNADO WARNING')">Draw Tornado Warning Box</button>
+        <button class="warn-emg" id="drawEmgBtn" onclick="startBoxDraw('TORNADO EMERGENCY')">Draw Tornado Emergency Box</button>
+        <button onclick="clearWarnings()" style="font-size:0.75rem; color:#94a3b8;">Clear Active Polygons</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Atmospheric Sounding</h3>
+      <canvas id="soundingCanvas" class="sounding-canvas"></canvas>
+      <div id="soundingStats" style="font-size:0.75rem; color:#94a3b8; margin-top:4px;">CAPE: 3450 J/kg | SRH: 410 m²/s²</div>
+    </div>
+
+    <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+      <h3>NWS & Chaser Feed</h3>
+      <div class="log-box" id="eventLog"></div>
+    </div>
+  </div>
+
+  <div class="map-area">
+    <div class="hud-top">
+      <div class="hud-box" id="statusHud">Mode: Monitoring Radar | Click & drag on map when drawing boxes</div>
+      <div class="hud-box">Score: <span id="scoreVal" style="color:#38bdf8; font-weight:bold;">100</span> | Active Tornadoes: <span id="torCount" style="color:#f43f5e; font-weight:bold;">0</span></div>
+    </div>
+    <canvas id="radarCanvas"></canvas>
+  </div>
+</div>
+<footer>
+  <span>TornadoSimulation.com &bull; Standalone HTML5 Severe Weather Engine</span>
+  <span>Tip: Host on GitHub Pages & use "Add to Home Screen" on mobile</span>
+</footer>
+
+<script>
+const canvas = document.getElementById('radarCanvas');
+const ctx = canvas.getContext('2d');
+const sCanvas = document.getElementById('soundingCanvas');
+const sCtx = sCanvas.getContext('2d');
+
+let radarMode = 'REF';
+let simSpeed = 1;
+let score = 100;
+let drawingType = null;
+let dragStart = null;
+let dragCurrent = null;
+
+const towns = [
+  { name: "Rockford", x: 0.22, y: 0.28, pop: 148000 },
+  { name: "Belvidere", x: 0.36, y: 0.26, pop: 25000 },
+  { name: "Rochelle", x: 0.24, y: 0.56, pop: 9500 },
+  { name: "DeKalb", x: 0.48, y: 0.54, pop: 40000 },
+  { name: "Freeport", x: 0.10, y: 0.22, pop: 23000 },
+  { name: "Dixon", x: 0.14, y: 0.62, pop: 15000 },
+  { name: "Elgin", x: 0.72, y: 0.36, pop: 114000 },
+  { name: "Aurora", x: 0.74, y: 0.68, pop: 180000 },
+  { name: "Woodstock", x: 0.56, y: 0.18, pop: 25000 },
+  { name: "Joliet", x: 0.84, y: 0.84, pop: 150000 },
+  { name: "Ottawa", x: 0.44, y: 0.85, pop: 18000 },
+  { name: "Sterling", x: 0.08, y: 0.68, pop: 14000 }
+];
+
+let storms = [];
+let warnings = [];
+let chasers = [];
+let chaserTimer = 0;
+
+function resize() {
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = canvas.parentElement.clientHeight;
+  sCanvas.width = sCanvas.parentElement.clientWidth;
+  sCanvas.height = 110;
+  drawSounding();
+}
+window.addEventListener('resize', resize);
+
+function logEvent(msg, type = '') {
+  const log = document.getElementById('eventLog');
+  const div = document.createElement('div');
+  div.className = 'log-entry ' + type;
+  const now = new Date();
+  const ts = now.toTimeString().slice(0, 5);
+  div.textContent = `[${ts}] ${msg}`;
+  log.prepend(div);
+}
+
+function setRadarMode(mode) {
+  radarMode = mode;
+  ['REF', 'VEL', 'CC'].forEach(m => {
+    document.getElementById('mode' + m).classList.toggle('active', m === mode);
+  });
+}
+
+function setSpeed(spd) {
+  simSpeed = spd;
+  document.getElementById('spd1').classList.toggle('active', spd === 1);
+  document.getElementById('spd2').classList.toggle('active', spd > 1);
+}
+
+function startBoxDraw(type) {
+  drawingType = type;
+  document.getElementById('statusHud').textContent = `DRAWING ${type}: Click and drag across the storm path`;
+}
+
+function clearWarnings() {
+  warnings = [];
+  logEvent('All active watch and warning boxes cleared.');
+}
+
+function issueFiveTownWatch() {
+  // Select 5 towns closest to active storm threats
+  let targetX = storms.length ? storms[0].x : 0.45;
+  let targetY = storms.length ? storms[0].y : 0.45;
+  const sorted = [...towns].sort((a, b) => Math.hypot(a.x - targetX, a.y - targetY) - Math.hypot(b.x - targetX, b.y - targetY));
+  const fiveTowns = sorted.slice(0, 5);
+
+  const xs = fiveTowns.map(t => t.x);
+  const ys = fiveTowns.map(t => t.y);
+  const pad = 0.05;
+  const box = {
+    type: 'TORNADO WATCH',
+    x1: Math.max(0.02, Math.min(...xs) - pad),
+    y1: Math.max(0.02, Math.min(...ys) - pad),
+    x2: Math.min(0.98, Math.max(...xs) + pad),
+    y2: Math.min(0.98, Math.max(...ys) + pad),
+    townList: fiveTowns.map(t => t.name)
+  };
+  warnings.push(box);
+  logEvent(`TORNADO WATCH issued covering 5 towns: ${box.townList.join(', ')}.`, 'watch');
+}
+
+canvas.addEventListener('mousedown', e => {
+  if (!drawingType) return;
+  const rect = canvas.getBoundingClientRect();
+  dragStart = { x: (e.clientX - rect.left) / canvas.width, y: (e.clientY - rect.top) / canvas.height };
+  dragCurrent = { ...dragStart };
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!drawingType || !dragStart) return;
+  const rect = canvas.getBoundingClientRect();
+  dragCurrent = { x: (e.clientX - rect.left) / canvas.width, y: (e.clientY - rect.top) / canvas.height };
+});
+
+canvas.addEventListener('mouseup', () => {
+  if (!drawingType || !dragStart || !dragCurrent) return;
+  const x1 = Math.min(dragStart.x, dragCurrent.x);
+  const x2 = Math.max(dragStart.x, dragCurrent.x);
+  const y1 = Math.min(dragStart.y, dragCurrent.y);
+  const y2 = Math.max(dragStart.y, dragCurrent.y);
+  if (Math.abs(x2 - x1) > 0.02 && Math.abs(y2 - y1) > 0.02) {
+    const inside = towns.filter(t => t.x >= x1 && t.x <= x2 && t.y >= y1 && t.y <= y2).map(t => t.name);
+    warnings.push({ type: drawingType, x1, y1, x2, y2, townList: inside });
+    const cls = drawingType === 'TORNADO EMERGENCY' ? 'emg' : 'tor';
+    logEvent(`${drawingType} issued! Towns included: ${inside.length ? inside.join(', ') : 'Rural Corridor'}.`, cls);
+  }
+  drawingType = null;
+  dragStart = null;
+  dragCurrent = null;
+  document.getElementById('statusHud').textContent = 'Mode: Monitoring Radar | Click & drag on map when drawing boxes';
+});
+
+function spawnStorm() {
+  const scen = document.getElementById('scenarioSelect').value;
+  const count = scen === 'supercell' ? 3 : (scen === 'nocturnal' ? 2 : 2);
+  storms = [];
+  for (let i = 0; i < count; i++) {
+    storms.push({
+      x: 0.08 + Math.random() * 0.15,
+      y: 0.25 + i * 0.28 + (Math.random() * 0.1 - 0.05),
+      vx: (scen === 'highdensity' ? 0.00028 : 0.00018) * (0.9 + Math.random() * 0.3),
+      vy: -0.00006 + (Math.random() * 0.00004),
+      intensity: 0.6 + Math.random() * 0.4,
+      hasTornado: false,
+      ef: 0,
+      debrisBall: 0,
+      warned: false
+    });
+  }
+}
+
+function resetSim() {
+  warnings = [];
+  chasers = [];
+  document.getElementById('eventLog').innerHTML = '';
+  const scen = document.getElementById('scenarioSelect').value;
+  const stats = scen === 'supercell' ? 'CAPE: 4100 J/kg | SRH: 480 m²/s²' :
+                scen === 'nocturnal' ? 'CAPE: 2600 J/kg | LLJ: 65 kt | SRH: 520 m²/s²' :
+                'CAPE: 4650 J/kg | STP: 11.4 | Violent Tornado Risk';
+  document.getElementById('soundingStats').textContent = stats;
+  spawnStorm();
+  drawSounding();
+  logEvent(`Scenario loaded: ${scen.toUpperCase()}. Monitor radar and issue watches/warnings.`);
+}
+
+function drawSounding() {
+  const w = sCanvas.width, h = sCanvas.height;
+  sCtx.clearRect(0, 0, w, h);
+  sCtx.strokeStyle = '#1e293b';
+  for (let i = 1; i < 5; i++) {
+    sCtx.beginPath(); sCtx.moveTo(0, (h / 5) * i); sCtx.lineTo(w, (h / 5) * i); sCtx.stroke();
+  }
+  // Temperature line (red)
+  sCtx.strokeStyle = '#ef4444'; sCtx.lineWidth = 2;
+  sCtx.beginPath();
+  sCtx.moveTo(w * 0.72, h * 0.92);
+  sCtx.lineTo(w * 0.55, h * 0.55);
+  sCtx.lineTo(w * 0.32, h * 0.12);
+  sCtx.stroke();
+  // Dewpoint line (green)
+  sCtx.strokeStyle = '#22c55e';
+  sCtx.beginPath();
+  sCtx.moveTo(w * 0.66, h * 0.92);
+  sCtx.lineTo(w * 0.42, h * 0.55);
+  sCtx.lineTo(w * 0.18, h * 0.12);
+  sCtx.stroke();
+}
+
+function update() {
+  let activeTors = 0;
+  storms.forEach(s => {
+    s.x += s.vx * simSpeed;
+    s.y += s.vy * simSpeed;
+    if (s.x > 1.05) {
+      s.x = 0.05;
+      s.y = 0.2 + Math.random() * 0.65;
+      s.hasTornado = false;
+      s.debrisBall = 0;
+    }
+
+    if (!s.hasTornado && Math.random() < 0.0025 * simSpeed) {
+      s.hasTornado = true;
+      s.ef = Math.floor(Math.random() * 4) + 1;
+      s.debrisBall = 0.85;
+      logEvent(`TOUCHDOWN! Confirmed EF-${s.ef} tornado on the ground! Check CC for debris signature.`, 'tor');
+    } else if (s.hasTornado && Math.random() < 0.0012 * simSpeed) {
+      s.hasTornado = false;
+      s.debrisBall = 0;
+      logEvent(`Tornado lifted. Broad rotation persists.`);
+    }
+
+    if (s.hasTornado) {
+      activeTors++;
+      const covered = warnings.some(w => (w.type === 'TORNADO WARNING' || w.type === 'TORNADO EMERGENCY') &&
+        s.x >= w.x1 && s.x <= w.x2 && s.y >= w.y1 && s.y <= w.y2);
+
+      towns.forEach(t => {
+        const dist = Math.hypot(s.x - t.x, s.y - t.y);
+        if (dist < 0.025 && Math.random() < 0.03 * simSpeed) {
+          if (covered) {
+            score += 2;
+            logEvent(`Direct impact near ${t.name} — residents sheltered under active warning (+2 pts).`);
+          } else {
+            score = Math.max(0, score - 5);
+            logEvent(`UNWARNED IMPACT near ${t.name}! Issue a Tornado Warning or Emergency immediately (-5 pts).`, 'emg');
+          }
+        }
+      });
+    }
+  });
+
+  chaserTimer += simSpeed;
+  if (chaserTimer > 450) {
+    chaserTimer = 0;
+    const torStorm = storms.find(s => s.hasTornado);
+    if (torStorm) {
+      const near = towns.reduce((prev, curr) =>
+        Math.hypot(curr.x - torStorm.x, curr.y - torStorm.y) < Math.hypot(prev.x - torStorm.x, prev.y - torStorm.y) ? curr : prev
+      );
+      logEvent(`SPOTTER REPORT: Large cone/wedge tornado observed near ${near.name}!`, 'tor');
+    }
+  }
+
+  document.getElementById('scoreVal').textContent = Math.round(score);
+  document.getElementById('torCount').textContent = activeTors;
+}
+
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = document.getElementById('scenarioSelect').value === 'nocturnal' ? '#04070d' : '#080e17';
+  ctx.fillRect(0, 0, w, h);
+
+  // County Grid Lines
+  ctx.strokeStyle = '#162032';
+  ctx.lineWidth = 1;
+  for (let gx = 0; gx < w; gx += 90) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h); ctx.stroke(); }
+  for (let gy = 0; gy < h; gy += 90) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke(); }
+
+  // Render Radar Cells
+  storms.forEach(s => {
+    const cx = s.x * w, cy = s.y * h;
+    if (radarMode === 'REF') {
+      const grad = ctx.createRadialGradient(cx, cy, 8, cx, cy, 85);
+      grad.addColorStop(0, 'rgba(217, 70, 239, 0.85)');
+      grad.addColorStop(0.3, 'rgba(239, 68, 68, 0.75)');
+      grad.addColorStop(0.6, 'rgba(234, 179, 8, 0.55)');
+      grad.addColorStop(1, 'rgba(34, 197, 94, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(cx - 10, cy - 18, 85, 0, Math.PI * 2); ctx.fill();
+
+      // Hook echo
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.85)';
+      ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.fill();
+    } else if (radarMode === 'VEL') {
+      // Base green background
+      ctx.fillStyle = 'rgba(22, 101, 52, 0.35)';
+      ctx.beginPath(); ctx.arc(cx - 10, cy - 15, 80, 0, Math.PI * 2); ctx.fill();
+      // Velocity couplet (bright green inbound / bright red outbound)
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.9)';
+      ctx.beginPath(); ctx.arc(cx - 9, cy, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';
+      ctx.beginPath(); ctx.arc(cx + 9, cy, 12, 0, Math.PI * 2); ctx.fill();
+    } else if (radarMode === 'CC') {
+      // Uniform high CC (pink/red) with blue/cyan Tornadic Debris Signature (TDS) drop
+      ctx.fillStyle = 'rgba(225, 29, 72, 0.45)';
+      ctx.beginPath(); ctx.arc(cx - 10, cy - 15, 80, 0, Math.PI * 2); ctx.fill();
+      if (s.hasTornado) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.95)';
+        ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    }
+
+    if (s.hasTornado) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`TOR EF${s.ef}`, cx + 10, cy + 4);
+    }
+  });
+
+  // Render Warnings & Watches
+  warnings.forEach(warn => {
+    const x = warn.x1 * w, y = warn.y1 * h;
+    const bw = (warn.x2 - warn.x1) * w, bh = (warn.y2 - warn.y1) * h;
+    if (warn.type === 'TORNADO WATCH') {
+      ctx.strokeStyle = '#eab308';
+      ctx.fillStyle = 'rgba(234, 179, 8, 0.12)';
+      ctx.setLineDash([6, 4]);
+    } else if (warn.type === 'TORNADO EMERGENCY') {
+      ctx.strokeStyle = '#e879f9';
+      ctx.fillStyle = 'rgba(232, 121, 249, 0.22)';
+      ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle = '#ef4444';
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+      ctx.setLineDash([]);
+    }
+    ctx.lineWidth = 2.5;
+    ctx.fillRect(x, y, bw, bh);
+    ctx.strokeRect(x, y, bw, bh);
+    ctx.setLineDash([]);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(warn.type, x + 6, y + 14);
+  });
+
+  // Active Drag Box
+  if (dragStart && dragCurrent) {
+    const x = Math.min(dragStart.x, dragCurrent.x) * w;
+    const y = Math.min(dragStart.y, dragCurrent.y) * h;
+    const bw = Math.abs(dragCurrent.x - dragStart.x) * w;
+    const bh = Math.abs(dragCurrent.y - dragStart.y) * h;
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, bw, bh);
+  }
+
+  // Render Towns
+  towns.forEach(t => {
+    const tx = t.x * w, ty = t.y * h;
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath(); ctx.arc(tx, ty, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(t.name, tx + 6, ty + 4);
+  });
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resize();
+resetSim();
+loop();
+</script>
+</body>
+</html>
